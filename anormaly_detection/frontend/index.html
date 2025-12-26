@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="zh">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>工程时序异常检测助手</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial;
+      background: #f6f7fb;
+      margin: 0;
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, .06);
+      padding: 14px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .muted {
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .chat {
+      height: 70vh;
+      overflow: auto;
+      padding: 12px;
+      background: #fbfbfd;
+      border-radius: 14px;
+      border: 1px solid #eef0f5;
+    }
+
+    .msg {
+      max-width: 80%;
+      margin: 10px 0;
+      padding: 10px 12px;
+      border-radius: 14px;
+      line-height: 1.35;
+    }
+
+    .me {
+      background: #e8f0ff;
+      margin-left: auto;
+    }
+
+    .bot {
+      background: #fff;
+      border: 1px solid #eef0f5;
+    }
+
+    .tools {
+      max-height: 70vh;
+      overflow: auto;
+    }
+
+    .tool {
+      border: 1px solid #eef0f5;
+      border-radius: 12px;
+      padding: 10px;
+      margin: 10px 0;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 8px 0 0 0;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid #e6e8ef;
+    }
+
+    button {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 0;
+      background: #2e6cff;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .imgwrap img {
+      max-width: 100%;
+      border-radius: 14px;
+      border: 1px solid #eef0f5;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #f2f4f7;
+      font-size: 12px;
+      color: #344054;
+    }
+
+    .typing {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .typing span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #c5c9d6;
+      animation: blink 1.4s infinite;
+    }
+
+    .typing span:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    .typing span:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+
+    @keyframes blink {
+
+      0%,
+      80%,
+      100% {
+        opacity: .2;
+      }
+
+      40% {
+        opacity: 1;
+      }
+    }
+
+    .chat-wrap {
+      position: relative;
+    }
+
+    .timer {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      padding: 4px 8px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid #eef0f5;
+      font-size: 12px;
+      color: #344054;
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div style="font-size:16px;font-weight:600">工程时序异常检测助手</div>
+          <div class="muted" id="status"></div>
+        </div>
+        <div class="pill" id="sid"></div>
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="chat-wrap">
+        <div class="chat" id="chat"></div>
+        <div class="timer" id="timer"></div>
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="row">
+        <input type="file" id="file" accept=".xlsx,.xls,.csv" />
+      </div>
+      <div style="height:8px"></div>
+      <div class="row">
+        <input type="text" id="msg" placeholder="例如：寻找飞升点并标注或画图" />
+        <button id="send">发送</button>
+      </div>
+      <div class="muted" style="margin-top:8px">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between; align-items:center">
+        <div style="font-size:14px;font-weight:600">工具调用记录</div>
+        <div class="muted" id="toolCount"></div>
+      </div>
+      <div style="height:10px"></div>
+      <div class="tools" id="tools"></div>
+      <div class="imgwrap" id="plot"></div>
+    </div>
+  </div>
+
+
+
+  <script>
+
+    /**
+   * - 后端 create_sse_event 返回 {event, retry, data, id}
+   * - EventSourceResponse 会编码为标准 SSE 文本流：
+   *    event: <event_type>
+   *    id: <uuid>
+   *    retry: <ms>
+   *    data: <json-string-of-payload>
+   *    \n
+  */
+
+    const API = "http://localhost:8000";
+    const sessionId = localStorage.getItem("ts_agent_session") || (crypto.randomUUID());
+    localStorage.setItem("ts_agent_session", sessionId);
+
+    const chat = document.getElementById("chat");
+    const tools = document.getElementById("tools");
+    const plot = document.getElementById("plot");
+    const sendBtn = document.getElementById("send");
+
+    const timerEl = document.getElementById("timer");
+    const statusEl = document.getElementById("status");
+    const toolCountEl = document.getElementById("toolCount");
+    const sidEl = document.getElementById("sid");
+
+    sidEl.textContent = "session: " + sessionId.slice(0, 8);
+
+    let timerInterval = null;
+    let toolCalls = [];
+    let inFlight = false;
+
+    function formatDuration(ms) {
+      const s = (ms / 1000).toFixed(1);
+      return `${s}s`;
+    }
+    function startTimer() {
+      clearInterval(timerInterval);
+      const start = Date.now();
+      timerEl.style.display = "block";
+      timerEl.textContent = "0.0s";
+      timerInterval = setInterval(() => {
+        timerEl.textContent = formatDuration(Date.now() - start);
+      }, 100);
+    }
+    function stopTimer() {
+      if (timerInterval) clearInterval(timerInterval);
+      if (timerEl) {
+        timerEl.style.display = "none";
+        timerEl.textContent = "";
+      }
+    }
+    function setStatus(s) {
+      statusEl.textContent = s || "";
+    }
+
+    function escapeHTML(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderTools(toolCalls) {
+      if (!tools) return;
+      tools.innerHTML = "";
+      (toolCalls || []).forEach((t, idx) => {
+        const result = t.result ?? t.result_preview ?? "";
+        const d = document.createElement("div");
+        d.className = "tool";
+        d.innerHTML = `
+          <div style="font-weight:600">#${idx + 1} ${escapeHTML(t.tool)}</div>
+          <div class="muted">args</div><pre>${escapeHTML(JSON.stringify(t.args ?? {}, null, 2))}</pre>
+          <div class="muted">${t.result ? "result" : "result preview"}</div><pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>
+        `;
+        tools.appendChild(d);
+      });
+      toolCountEl.textContent = `${(toolCalls || []).length} calls`;
+    }
+
+    function addMsg(role, text) {
+      const div = document.createElement("div");
+      div.className = "msg " + (role === "me" ? "me" : "bot");
+      div.textContent = text;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+    function addEventMsg(eventType, data) {
+      const div = document.createElement("div");
+      div.className = "msg bot";
+
+      let content = "";
+      switch (eventType) {
+        case "agent_start":
+          content = "开始处理您的请求…";
+          break;
+        case "validation_passed":
+          content = "请求验证通过，开始处理";
+          break;
+        case "file_processing":
+          content = `正在处理文件: ${data.filename || 'unknown'}`;
+          break;
+        case "file_processed":
+          content = `文件处理完成：shape=${(data.shape && data.shape.join('×')) || 'unknown'}，columns=${(data.columns && data.columns.length) || 0}`;
+          break;
+        case "agent_executing":
+          content = "AI智能体开始分析数据…";
+          break;
+        case "tool_call":
+          content = `工具调用 ${data.progress || ""}：${data.tool_name || "unknown_tool"}`;
+          break;
+        case "agent_completed":
+          content = `分析完成（tool_calls=${data.tool_calls_count ?? "?"}，耗时=${(data.execution_time_ms ?? 0).toFixed(0)}ms）`;
+          break;
+        case "agent_error":
+          content = `错误：${data.error || "unknown error"}`;
+          break;
+        case "agent_end":
+          content = "处理完成";
+          break;
+        case "ping":
+          content = "（连接保持中…）";
+          div.className = "msg bot muted";
+          break;
+        default:
+          content = `事件 ${eventType}: ${JSON.stringify(data)}`;
+      }
+
+      div.textContent = content;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function renderTools(toolCalls) {
+      tools.innerHTML = "";
+      (toolCalls || []).forEach((t, idx) => {
+        const result = t.result ?? t.result_preview ?? "";
+        const d = document.createElement("div");
+        d.className = "tool";
+        d.innerHTML = `
+          <div style="font-weight:600">#${idx + 1} ${escapeHTML(t.tool)}</div>
+          <div class="muted">args</div><pre>${escapeHTML(JSON.stringify(t.args ?? {}, null, 2))}</pre>
+          <div class="muted">${t.result ? "result" : "result preview"}</div><pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>
+        `;
+        tools.appendChild(d);
+      });
+      toolCountEl.textContent = `${(toolCalls || []).length} calls`;
+    }
+
+
+    function renderPlotFromArtifacts(artifacts) {
+      const b64 =
+        artifacts?.plot_b64 ||
+        artifacts?.detection?.plot_b64 ||
+        artifacts?.detection?.plot ||
+        null;
+      if (!b64) {
+        plot.innerHTML = "";
+        return;
+      }
+      plot.innerHTML = `<div style="height:10px"></div><img src="data:image/png;base64,${b64}" />`;
+    }
+
+
+    function addTyping() {
+      if (typingEl) return;
+      typingEl = document.createElement("div");
+      typingEl.className = "msg bot";
+      typingEl.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+      chat.appendChild(typingEl);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+
+    function removeTyping() {
+      if (typingEl && typingEl.parentNode) {
+        typingEl.parentNode.removeChild(typingEl);
+      }
+      typingEl = null;
+    }
+
+
+    function startThinking() {
+      startTimer();
+    }
+
+
+    function stopThinking(text) {
+      stopTimer();
+      if (text) addMsg("bot", text);
+    }
+
+    // -----------------------------
+    // SSE parser for fetch(POST)
+    // -----------------------------
+    function handleSSEEvent(eventType, dataObj) {
+      // 展示过程事件
+      if (eventType !== "ping" && eventType !== "tool_call") {
+        addEventMsg(eventType, dataObj);
+      }
+
+      if (eventType === "tool_call") {
+        toolCalls.push({
+          tool: dataObj.tool_name || "unknown_tool",
+          args: dataObj.args,
+          result_preview: dataObj.result_preview,
+          result: dataObj.result
+        });
+        renderTools(toolCalls);
+      }
+
+      if (eventType === "agent_completed") {
+        stopTimer();
+        if (dataObj.message) {
+          addMsg("bot", dataObj.message);
+        }
+        renderPlotFromArtifacts(dataObj.artifacts);
+        setStatus("完成");
+        inFlight = false;
+        sendBtn.disabled = false;
+      }
+
+      if (eventType === "agent_error") {
+        stopTimer();
+        const err = dataObj.error || "未知错误";
+        addMsg("bot", `错误：${err}`);
+        setStatus(`错误：${err}`);
+        inFlight = false;
+        sendBtn.disabled = false;
+      }
+
+      if (eventType === "agent_end") {
+        if (inFlight) {
+          inFlight = false;
+          sendBtn.disabled = false;
+          stopTimer();
+        }
+      }
+    }
+
+    async function readSSEStream(resp) {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      let buf = "";
+      let cur = { event: "message", dataLines: [], id: null, retry: null };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop(); // 保留半行
+
+        for (const rawLine of lines) {
+          const line = rawLine.replace(/\r$/, "");
+
+          // 空行：一个 SSE event 结束
+          if (line === "") {
+            if (cur.dataLines.length > 0) {
+              const dataStr = cur.dataLines.join("\n");
+              try {
+                const dataObj = JSON.parse(dataStr);
+                handleSSEEvent(cur.event || "message", dataObj);
+              } catch (e) {
+                console.warn("Bad SSE data JSON:", dataStr, e);
+              }
+            }
+            cur = { event: "message", dataLines: [], id: null, retry: null };
+            continue;
+          }
+
+          if (line.startsWith("event:")) {
+            cur.event = line.slice(6).trim();
+          } else if (line.startsWith("id:")) {
+            cur.id = line.slice(3).trim();
+          } else if (line.startsWith("retry:")) {
+            cur.retry = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            // SSE 允许多行 data:，需要拼起来
+            cur.dataLines.push(line.slice(5).trimStart());
+          } else {
+            // 其他字段忽略
+          }
+        }
+      }
+    }
+
+    // -----------------------------
+    // Send
+    // -----------------------------
+    async function sendSSE() {
+      const msgEl = document.getElementById("msg");
+      const fileEl = document.getElementById("file");
+      const message = msgEl.value.trim();
+
+      if (inFlight) return;
+      if (!message) {
+        alert("请输入一句任务描述。例如：寻找飞升点并标注或画图");
+        return;
+      }
+
+      // reset UI per request
+      toolCalls = [];
+      renderTools(toolCalls);
+      plot.innerHTML = "";
+      setStatus("");
+
+      addMsg("me", message);
+      msgEl.value = "";
+
+      inFlight = true;
+      sendBtn.disabled = true;
+      startTimer();
+      setStatus("连接中…");
+
+      const fd = new FormData();
+      fd.append("message", message);
+      fd.append("session_id", sessionId);
+
+      if (fileEl.files && fileEl.files.length > 0) {
+        fd.append("file", fileEl.files[0]);
+      }
+
+      try {
+        const resp = await fetch(`${API}/api/chat-sse`, {
+          method: "POST",
+          body: fd
+        });
+
+        if (!resp.ok) {
+          throw new Error(`服务异常 (${resp.status})`);
+        }
+        if (!resp.body) {
+          throw new Error("响应体为空（可能被代理缓存或浏览器不支持流式读取）");
+        }
+
+        setStatus("已连接，等待事件…");
+        await readSSEStream(resp);
+
+        // 读完流：如果后端没发 end/completed，也解锁
+        if (inFlight) {
+          inFlight = false;
+          sendBtn.disabled = false;
+          stopTimer();
+          setStatus("连接结束");
+        }
+
+      } catch (e) {
+        stopTimer();
+        inFlight = false;
+        sendBtn.disabled = false;
+        const msg = e?.message || "请求失败：请确认后端已启动（localhost:8000）并允许 CORS。";
+        addMsg("bot", msg);
+        setStatus(msg);
+        console.error(e);
+      }
+    }
+
+    sendBtn.addEventListener("click", sendSSE);
+    document.getElementById("msg")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendSSE();
+    });
+
+    const clearBtn = document.getElementById("clear");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        chat.innerHTML = "";
+        tools.innerHTML = "";
+        plot.innerHTML = "";
+        toolCalls = [];
+        toolCountEl && (toolCountEl.textContent = "");
+        setStatus("");
+      });
+    }
+
+  </script>
+</body>
+
+</html>

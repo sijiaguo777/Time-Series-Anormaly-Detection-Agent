@@ -1,0 +1,10 @@
+pydantic-ai
+fastapi
+uvicorn[standard]
+pandas
+numpy
+matplotlib
+openpyxl
+python-multipart
+sse_starlette
+starlette
