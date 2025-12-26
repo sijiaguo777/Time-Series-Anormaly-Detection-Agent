@@ -10,7 +10,7 @@ python -m http.server 5173
 ## 2. 启动后端
 ```bash
 cd ./backend
-uvicorn main:app --reload 4 --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
 ## 3. 准备本地模型
